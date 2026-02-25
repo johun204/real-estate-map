@@ -1,0 +1,60 @@
+name: Real Estate Map Update (Dispatch)
+
+on:
+  repository_dispatch:
+    types: [real_estate_trigger]
+  workflow_dispatch: # 수동 실행 버튼
+
+# 동일 작업이 겹칠 경우 이전 작업을 취소하여 파일 잠금/충돌 방지
+concurrency:
+  group: crawling-group
+  cancel-in-progress: true
+  
+permissions:
+  contents: write
+
+jobs:
+  update_data:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then 
+            pip install -r requirements.txt
+          else 
+            pip install aiohttp requests
+          fi
+
+      - name: Run Geocoding Script
+        env:
+          KAKAO_API_KEY: ${{ secrets.KAKAO_API_KEY }}
+          DATAGOKR_API_KEY: ${{ secrets.DATAGOKR_API_KEY }}
+        run: python main.py 
+
+      - name: Commit and Push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add data/*.json
+
+          # 변경사항이 있는지 확인 (변경사항 없으면 여기서 종료되어 에러 방지)
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+        
+          git commit --amend -m "Auto Update: permit Data JSON [$(date)]" --author="github-actions[bot] <github-actions[bot]@users.noreply.github.com>" || git commit -m "Auto Update: permit Data JSON [$(date)]"
+          git push -f origin HEAD:main
